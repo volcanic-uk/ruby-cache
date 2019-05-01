@@ -19,8 +19,8 @@ describe Volcanic::Cache::Cache do
 
       it('requests the value from the source only once') do
         expect(source_mock).to receive(:next).once
-        instance.fetch(key) { source_mock.next}
-        instance.fetch(key) { source_mock.next}
+        expect(instance.fetch(key) { source_mock.next}).to eq(source_values[0])
+        expect(instance.fetch(key) { source_mock.next}).to eq(source_values[0])
       end
 
       it('returns the value') \

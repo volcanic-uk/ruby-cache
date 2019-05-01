@@ -1,21 +1,33 @@
 require 'set'
+require 'forwardable'
 
 module Volcanic::Cache
   class Cache
     class CacheMissError < RuntimeError; end
 
+    # Provide support for using the cache as a singleton
+    extend SingleForwardable
+    @_singleton_mutex = Mutex.new
+    @_singleton_settings = {}
+    def_delegators :instance, :fetch, :evict, :key?, :gc!, :size
+
     # injectable clock for testing
     attr_writer :_clock
 
-    def initialize(max_size: 1000)
+    attr_accessor :default_expiry, :max_size
+
+    def initialize(max_size: 1000, default_expiry: 60)
       @key_values = {}
       @expiries = Hash.new { |h, k| h[k] = Set.new }
       @mutex = Mutex.new
       @max_size = max_size
+      @default_expiry = default_expiry
+
+      @_clock = Time
     end
 
-    def fetch(key, expire_in: 60, expire_at: nil, &blk)
-      expiry = expire_at || now + expire_in
+    def fetch(key, expire_in: nil, expire_at: nil, &blk)
+      expiry = expire_at || now + (expire_in || @default_expiry)
       @mutex.synchronize { in_mutex_fetch(key, expiry: expiry, &blk) }
     end
 
@@ -35,11 +47,34 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_gc! }
     end
 
+    # support the Singleton options
+    class << self
+      def instance
+        @_singleton_mutex.synchronize { @_singleton_instance ||= new(**@_singleton_settings) }
+      end
+
+      # A reset option for testing... replace the existing singleton with a new one with the same settings
+      def _reset_instance
+        @_singleton_mutex.synchronize { @_singleton_instance = new(**@_singleton_settings) }
+      end
+
+      def max_size=(value)
+        @_singleton_settings[:max_size] = value
+        instance.max_size = value
+      end
+
+      def default_expiry=(value)
+        @_singleton_settings[:default_expiry] = value
+        instance.default_expiry = value
+      end
+    end
+
+
     private
 
     # Allow a clock to be injected for testing
     def now
-      @_clock.now.to_i || Time.now.to_i
+      @_clock.now.to_i
     end
 
     ################################################
