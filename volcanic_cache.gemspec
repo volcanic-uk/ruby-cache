@@ -1,7 +1,7 @@
 require_relative 'lib/volcanic/cache/version.rb'
 
 Gem::Specification.new do | spec|
-  spec.name = 'volcanic_cache'
+  spec.name = 'volcanic-cache'
   spec.version = Volcanic::Cache::VERSION
   spec.summary = 'A simple in-memory cache'
   spec.description = spec.summary
