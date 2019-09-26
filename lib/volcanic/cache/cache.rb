@@ -1,9 +1,10 @@
 require 'set'
 require 'forwardable'
+require_relative 'errors.rb'
 
 module Volcanic::Cache
   class Cache
-    class CacheMissError < RuntimeError; end
+    IMMORTAL_TTL = 3_155_760_000 # 100 years in seconds
 
     # Provide support for using the cache as a singleton
     extend SingleForwardable
@@ -26,9 +27,16 @@ module Volcanic::Cache
       @_clock = Time
     end
 
-    def fetch(key, expire_in: nil, expire_at: nil, &blk)
-      expiry = expire_at || now + (expire_in || @default_expiry)
+    def fetch(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
+      expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
       @mutex.synchronize { in_mutex_fetch(key, expiry: expiry, &blk) }
+    end
+
+    def put(key, expire_in: nil, expire_at: nil, immortal: false)
+      raise ArgumentError.new("Attempted to put #{key} without providing a block") \
+        unless block_given?
+      expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
+      @mutex.synchronize { in_mutex_store(key, yield, expiry) }
     end
 
     def evict!(key)
@@ -43,6 +51,10 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_key?(key) }
     end
 
+    def ttl_for(key)
+      @mutex.synchronize { in_mutex_ttl_for(key) }
+    end
+
     def gc!
       @mutex.synchronize { in_mutex_gc! }
     end
@@ -53,7 +65,8 @@ module Volcanic::Cache
         @_singleton_mutex.synchronize { @_singleton_instance ||= new(**@_singleton_settings) }
       end
 
-      # A reset option for testing... replace the existing singleton with a new one with the same settings
+      # A reset option for testing...
+      # replace the existing singleton with a new one with the same settings
       def _reset_instance
         @_singleton_mutex.synchronize { @_singleton_instance = new(**@_singleton_settings) }
       end
@@ -69,12 +82,18 @@ module Volcanic::Cache
       end
     end
 
-
     private
 
     # Allow a clock to be injected for testing
     def now
       @_clock.now.to_i
+    end
+
+    def calculate_expiry(expire_at: nil, expire_in: nil, immortal: false)
+      raise ArgumentError.new('Only one of immortal, expire_at or expire_in can be used') \
+        if [expire_at.nil?, expire_in.nil?, !immortal].count(false) > 1
+      expire_in = IMMORTAL_TTL if immortal
+      expire_at || now + (expire_in || @default_expiry)
     end
 
     ################################################
@@ -93,12 +112,21 @@ module Volcanic::Cache
     def in_mutex_fetch(key, expiry:)
       in_mutex_retrieve_local_with_expire(key)
     rescue CacheMissError
+      raise CacheMissError unless block_given?
       value = yield
       in_mutex_store(key, value, expiry)
       value
     end
 
+    def in_mutex_ttl_for(key)
+      in_mutex_retrieve_local_with_expire_and_ttl(key)[0]
+    end
+
     def in_mutex_retrieve_local_with_expire(key)
+      in_mutex_retrieve_local_with_expire_and_ttl(key)[1]
+    end
+
+    def in_mutex_retrieve_local_with_expire_and_ttl(key)
       expiry, value = @key_values[key]
       if expiry.nil?
         raise CacheMissError
@@ -107,7 +135,7 @@ module Volcanic::Cache
           in_mutex_expire_all_by_time(expiry)
           raise CacheMissError
         else
-          value
+          [expiry - now, value]
         end
       end
     end

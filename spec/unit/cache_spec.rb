@@ -3,24 +3,25 @@ require_relative 'spec_helper'
 describe Volcanic::Cache::Cache do
   let(:clock) { double('clock', now: 20) }
   let(:max_size) { 3 }
-  subject(:instance) { Volcanic::Cache::Cache.new(max_size: max_size).tap { |c| c._clock = clock } }
+  subject(:instance) \
+    { Volcanic::Cache::Cache.new(max_size: max_size).tap { |c| c._clock = clock } }
   let(:source_values) { [1, 2, 3, 4, 5] }
-  let(:source_mock) { double('source') } 
+  let(:source_mock) { double('source') }
   let(:key) { :key }
 
   before { allow(source_mock).to receive(:next).and_return(*source_values) }
 
   describe 'fetching' do
     context 'when the key has not been stored before' do
-      let(:fetched) { instance.fetch(key) { source_mock.next} }
+      let(:fetched) { instance.fetch(key) { source_mock.next } }
 
       it('does not contain the key') \
         { expect(instance.key?(key)).to be false }
 
       it('requests the value from the source only once') do
         expect(source_mock).to receive(:next).once
-        expect(instance.fetch(key) { source_mock.next}).to eq(source_values[0])
-        expect(instance.fetch(key) { source_mock.next}).to eq(source_values[0])
+        expect(instance.fetch(key) { source_mock.next }).to eq(source_values[0])
+        expect(instance.fetch(key) { source_mock.next }).to eq(source_values[0])
       end
 
       it('returns the value') \
@@ -43,6 +44,26 @@ describe Volcanic::Cache::Cache do
         fetched
         expect(instance.key?(key)).to be true
       end
+
+      it('sets the ttl correctly with expire_in') do
+        instance.fetch(key, expire_in: 20) { source_mock.next }
+        expect(instance.ttl_for(key)).to eq(20)
+      end
+
+      it('sets the ttl correctly with expire_at') do
+        instance.fetch(key, expire_at: 1000) { source_mock.next }
+        expect(instance.ttl_for(key)).to eq(1000 - clock.now)
+      end
+
+      it('sets the ttl correctly using the default ttl') do
+        instance.fetch(key) { source_mock.next }
+        expect(instance.ttl_for(key)).to eq(instance.default_expiry)
+      end
+
+      context 'when no block is provided' do
+        it('raises a cache miss') \
+          { expect { instance.fetch(key) }.to raise_error(Volcanic::Cache::CacheMissError) }
+      end
     end
 
     context 'when the value has expired' do
@@ -60,6 +81,11 @@ describe Volcanic::Cache::Cache do
         instance.fetch(key, expire_in: 5) { source_mock.next }
         expect(instance.size).to eq(1)
         expect(instance.key?(key)).to be true
+      end
+
+      context 'when no block is provided' do
+        it('raises a cache miss') \
+          { expect { instance.fetch(key) }.to raise_error(Volcanic::Cache::CacheMissError) }
       end
     end
   end
@@ -100,6 +126,33 @@ describe Volcanic::Cache::Cache do
       instance.evict!(:one)
       expect(instance.size).to eq(2)
       expect(instance.key?(:one)).to be false
+    end
+  end
+
+  context 'put' do
+    let(:new_value) { double(:new_value) }
+    let(:expiry) { 2000 } # randomly chosen large number
+
+    shared_examples 'the value is stored with the correct expiry' do
+      before { instance.put(key, expire_at: expiry) { new_value } }
+
+      it('stores the provided value') { expect(instance.fetch(key)).to be new_value }
+      it('has the correct ttl') { expect(instance.ttl_for(key)).to eq(expiry - clock.now) }
+
+      context 'when no block is provided' do
+        it('raises an argument error') \
+          { expect { instance.put(key) }.to raise_error(ArgumentError) }
+      end
+    end
+
+    context 'without a value for the key' do
+      it_behaves_like 'the value is stored with the correct expiry'
+    end
+
+    context 'with a value for the key already in the cache' do
+      before { instance.fetch(:key, expire_at: 1000) { :old_value } }
+
+      it_behaves_like 'the value is stored with the correct expiry'
     end
   end
 
