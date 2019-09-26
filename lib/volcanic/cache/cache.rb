@@ -28,15 +28,33 @@ module Volcanic::Cache
     end
 
     def fetch(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
-      expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
-      @mutex.synchronize { in_mutex_fetch(key, expiry: expiry, &blk) }
+      @mutex.synchronize { unsafe_fetch(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk) }
     end
 
-    def put(key, expire_in: nil, expire_at: nil, immortal: false)
+    ############################################################
+    # This is a dangerous method because it is not thread safe #
+    # This should only (normally) be used when inside a block  #
+    # that is executed inside the appropriate mutex            #
+    ############################################################
+    def unsafe_fetch(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
+      expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
+      in_mutex_fetch(key, expiry: expiry, &blk)
+    end
+
+    def put(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
+      @mutex.synchronize { unsafe_put(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk) }
+    end
+
+    ############################################################
+    # This is a dangerous method because it is not thread safe #
+    # This should only (normally) be used when inside a block  #
+    # that is executed inside the appropriate mutex            #
+    ############################################################
+    def unsafe_put(key, expire_in: nil, expire_at: nil, immortal: false)
       raise ArgumentError.new("Attempted to put #{key} without providing a block") \
         unless block_given?
       expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
-      @mutex.synchronize { in_mutex_store(key, yield, expiry) }
+      in_mutex_store(key, yield, expiry)
     end
 
     def evict!(key)
