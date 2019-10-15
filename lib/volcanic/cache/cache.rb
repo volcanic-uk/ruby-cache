@@ -69,6 +69,15 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_key?(key) }
     end
 
+    ############################################################
+    # This is a dangerous method because it is not thread safe #
+    # This should only (normally) be used when inside a block  #
+    # that is executed inside the appropriate mutex            #
+    ############################################################
+    def unsafe_key?(key)
+      in_mutex_key?(key)
+    end
+
     def ttl_for(key)
       @mutex.synchronize { in_mutex_ttl_for(key) }
     end
