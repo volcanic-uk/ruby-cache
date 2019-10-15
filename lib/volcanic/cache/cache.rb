@@ -86,6 +86,10 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_gc! }
     end
 
+    def update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+      @mutex.synchronize { in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition) }
+    end
+
     # support the Singleton options
     class << self
       def instance
@@ -191,6 +195,16 @@ module Volcanic::Cache
 
     def in_mutex_expire_all_by_time(expiry)
       @expiries[expiry].each { |key| in_mutex_expire!(key) }
+    end
+
+    def in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+      value = in_mutex_retrieve_local_with_expire(key)
+      if (!block_given? || condition.call(value))
+        expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
+        @expiries[expiry].delete key
+        @expiries[expiry].add key
+        @key_values[key][0] = expiry
+      end
     end
   end
 end

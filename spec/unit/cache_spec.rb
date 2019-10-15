@@ -156,6 +156,46 @@ describe Volcanic::Cache::Cache do
     end
   end
 
+  context 'extending the ttl' do
+    context "when the key doesn't exist" do
+      it('raises a cache miss error') \
+        { expect { instance.update_ttl_for(:missing) }.to raise_error(Volcanic::Cache::CacheMissError) }
+    end
+
+    context 'when the key exists' do
+      before do
+        instance.put(:key, expire_at: 20) { source_mock }
+        allow(clock).to receive(:now).and_return(0)
+      end
+
+      context 'and no block is provided' do
+        it 'extends the expiry time' do
+          instance.update_ttl_for(:key, expire_at: 50)
+          expect(instance.ttl_for(:key)).to be(50)
+        end
+      end
+
+      context 'and a block is provided' do
+        before { instance.update_ttl_for(:key, expire_at: 50, &condition) }
+
+        context 'and the block returns true' do
+          let(:condition) { ->(_) { true } }
+          it 'extends the expiry time' do
+            expect(instance.ttl_for(:key)).to be(50)
+          end
+        end
+
+        context 'and the block returns false' do
+          let(:condition) { ->(_) { false } }
+          it 'does not extend the expiry time' do
+            expect(instance.ttl_for(:key)).to be(20)
+          end
+        end
+      end
+    end
+    #update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+  end
+
   context 'garbage collection' do
     let(:max_size) { 10 }
 
