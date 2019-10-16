@@ -21,6 +21,8 @@ module Volcanic::Cache
       @key_values = {}
       @expiries = Hash.new { |h, k| h[k] = Set.new }
       @mutex = Mutex.new
+      @cv_waiter = ConditionVariable.new
+      @mutex_keys = {}
       @max_size = max_size
       @default_expiry = default_expiry
 
@@ -28,7 +30,7 @@ module Volcanic::Cache
     end
 
     def fetch(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
-      @mutex.synchronize do
+      with_mutex_for(key) do
         unsafe_fetch key, expire_in: expire_in, expire_at: expire_at,
                      immortal: immortal, &blk
       end
@@ -45,7 +47,7 @@ module Volcanic::Cache
     end
 
     def put(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
-      @mutex.synchronize do
+      with_mutex_for(key) do
         unsafe_put key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk
       end
     end
@@ -63,7 +65,7 @@ module Volcanic::Cache
     end
 
     def evict!(key)
-      @mutex.synchronize { in_mutex_expire!(key) }
+      with_mutex_for(key) { in_mutex_expire!(key) }
     end
 
     def size
@@ -71,7 +73,7 @@ module Volcanic::Cache
     end
 
     def key?(key)
-      @mutex.synchronize { in_mutex_key?(key) }
+      with_mutex_for(key) { in_mutex_key?(key) }
     end
 
     ############################################################
@@ -84,15 +86,18 @@ module Volcanic::Cache
     end
 
     def ttl_for(key)
-      @mutex.synchronize { in_mutex_ttl_for(key) }
+      with_mutex_for(key) { in_mutex_ttl_for(key) }
     end
 
     def gc!
-      @mutex.synchronize { in_mutex_gc! }
+      @mutex.synchronize do
+        @cv_waiter.wait(@mutex) unless @mutex_keys.empty?
+        in_mutex_gc!
+      end
     end
 
     def update_ttl_for(key, expire_in: nil, expire_at: nil, immortal: nil, &condition)
-      @mutex.synchronize do
+      with_mutex_for(key) do
         in_mutex_update_ttl_for key, expire_in: expire_in, expire_at: expire_at,
                                 immortal: immortal, &condition
       end
@@ -132,6 +137,24 @@ module Volcanic::Cache
     end
 
     private
+
+    def with_mutex_for(key)
+      mutex = accessors = nil
+      @mutex.synchronize do
+        mutex, accessors = *(@mutex_keys[key] ||= [Mutex.new, Set.new])
+        accessors << Thread.current
+      end
+      result = mutex.synchronize { yield }
+    ensure
+      @mutex.synchronize do
+        accessors.delete Thread.current
+        if accessors.empty?
+          @mutex_keys.delete(key)
+          @cv_waiter.signal
+        end
+      end
+      result
+    end
 
     # Allow a clock to be injected for testing
     def now
