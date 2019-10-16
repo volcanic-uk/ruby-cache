@@ -90,6 +90,15 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition) }
     end
 
+    ############################################################
+    # This is a dangerous method because it is not thread safe #
+    # This should only (normally) be used when inside a block  #
+    # that is executed inside the appropriate mutex            #
+    ############################################################
+    def unsafe_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+      in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+    end
+
     # support the Singleton options
     class << self
       def instance
