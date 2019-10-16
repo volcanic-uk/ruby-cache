@@ -28,7 +28,10 @@ module Volcanic::Cache
     end
 
     def fetch(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
-      @mutex.synchronize { unsafe_fetch(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk) }
+      @mutex.synchronize do
+        unsafe_fetch key, expire_in: expire_in, expire_at: expire_at,
+                     immortal: immortal, &blk
+      end
     end
 
     ############################################################
@@ -42,7 +45,9 @@ module Volcanic::Cache
     end
 
     def put(key, expire_in: nil, expire_at: nil, immortal: false, &blk)
-      @mutex.synchronize { unsafe_put(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk) }
+      @mutex.synchronize do
+        unsafe_put key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &blk
+      end
     end
 
     ############################################################
@@ -86,8 +91,11 @@ module Volcanic::Cache
       @mutex.synchronize { in_mutex_gc! }
     end
 
-    def update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
-      @mutex.synchronize { in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition) }
+    def update_ttl_for(key, expire_in: nil, expire_at: nil, immortal: nil, &condition)
+      @mutex.synchronize do
+        in_mutex_update_ttl_for key, expire_in: expire_in, expire_at: expire_at,
+                                immortal: immortal, &condition
+      end
     end
 
     ############################################################
@@ -95,8 +103,9 @@ module Volcanic::Cache
     # This should only (normally) be used when inside a block  #
     # that is executed inside the appropriate mutex            #
     ############################################################
-    def unsafe_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
-      in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+    def unsafe_update_ttl_for(key, expire_in: nil, expire_at: nil, immortal: nil, &condition)
+      in_mutex_update_ttl_for key, expire_in: expire_in, expire_at: expire_at,
+                              immortal: immortal, &condition
     end
 
     # support the Singleton options
@@ -206,9 +215,9 @@ module Volcanic::Cache
       @expiries[expiry].each { |key| in_mutex_expire!(key) }
     end
 
-    def in_mutex_update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
+    def in_mutex_update_ttl_for(key, expire_in: nil, expire_at: nil, immortal: nil, &_condition)
       value = in_mutex_retrieve_local_with_expire(key)
-      if (!block_given? || condition.call(value))
+      if !block_given? || yield(value)
         expiry = calculate_expiry(expire_in: expire_in, expire_at: expire_at, immortal: immortal)
         @expiries[expiry].delete key
         @expiries[expiry].add key

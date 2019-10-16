@@ -158,8 +158,10 @@ describe Volcanic::Cache::Cache do
 
   context 'extending the ttl' do
     context "when the key doesn't exist" do
-      it('raises a cache miss error') \
-        { expect { instance.update_ttl_for(:missing) }.to raise_error(Volcanic::Cache::CacheMissError) }
+      it('raises a cache miss error') do
+        expect { instance.update_ttl_for(:missing) }.to \
+          raise_error(Volcanic::Cache::CacheMissError)
+      end
     end
 
     context 'when the key exists' do
@@ -193,7 +195,6 @@ describe Volcanic::Cache::Cache do
         end
       end
     end
-    #update_ttl_for(key, expire_in: expire_in, expire_at: expire_at, immortal: immortal, &condition)
   end
 
   context 'garbage collection' do
