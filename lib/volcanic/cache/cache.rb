@@ -17,7 +17,7 @@ module Volcanic::Cache
 
     attr_accessor :default_expiry, :max_size
 
-    def initialize(max_size: 1000, default_expiry: 60)
+    def initialize(max_size: 1000, default_expiry: 60, cache_nil: true)
       @key_values = {}
       @expiries = Hash.new { |h, k| h[k] = Set.new }
       @mutex = Mutex.new
@@ -25,6 +25,7 @@ module Volcanic::Cache
       @mutex_keys = {}
       @max_size = max_size
       @default_expiry = default_expiry
+      @cache_nil = cache_nil
 
       @_clock = Time
     end
@@ -186,7 +187,7 @@ module Volcanic::Cache
     rescue CacheMissError
       raise CacheMissError unless block_given?
       value = yield
-      in_mutex_store(key, value, expiry)
+      in_mutex_store(key, value, expiry) if @cache_nil
       value
     end
 

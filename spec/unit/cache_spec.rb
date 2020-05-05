@@ -3,8 +3,9 @@ require_relative 'spec_helper'
 describe Volcanic::Cache::Cache do
   let(:clock) { double('clock', now: 20) }
   let(:max_size) { 3 }
+  let(:instance_args) { { max_size: max_size } }
   subject(:instance) \
-    { Volcanic::Cache::Cache.new(max_size: max_size).tap { |c| c._clock = clock } }
+    { Volcanic::Cache::Cache.new(**instance_args).tap { |c| c._clock = clock } }
   let(:source_values) { [1, 2, 3, 4, 5] }
   let(:source_mock) { double('source') }
   let(:key) { :key }
@@ -63,6 +64,26 @@ describe Volcanic::Cache::Cache do
       context 'when no block is provided' do
         it('raises a cache miss') \
           { expect { instance.fetch(key) }.to raise_error(Volcanic::Cache::CacheMissError) }
+      end
+
+      context 'when the returned value is nil' do
+        let(:source_values) { [nil] }
+
+        context 'and nil-caching is enabled' do
+          it 'caches the nil value' do
+            expect(fetched).to be nil
+            expect(instance.key?(key)).to be true
+          end
+        end
+
+        context 'and nil-caching is disabled' do
+          let(:instance_args) { super().merge(cache_nil: false) }
+
+          it 'does not cache the nil value' do
+            expect(fetched).to be nil
+            expect(instance.key?(key)).to be false
+          end
+        end
       end
     end
 
